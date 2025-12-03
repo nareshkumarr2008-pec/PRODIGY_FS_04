@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat Room: {{ room }}</title>
+    <style>
+        #chat-container {
+            display: flex;
+            height: 500px;
+            border: 1px solid #ccc;
+        }
+        #messages-area {
+            flex-grow: 1;
+            padding: 10px;
+            overflow-y: scroll;
+            border-right: 1px solid #eee;
+        }
+        #sidebar {
+            width: 200px;
+            padding: 10px;
+            background-color: #f4f4f4;
+        }
+        .message-form, .file-form {
+            padding: 10px;
+            border-top: 1px solid #ccc;
+        }
+    </style>
+</head>
+<body>
+    <h2>Room: {{ room }}</h2>
+    <p>Logged in as: <strong>{{ username }}</strong> | <a href="{{ url_for('logout') }}">Leave Chat/Logout</a></p>
+
+    <div id="chat-container">
+        <div id="messages-area">
+            <h3>Messages</h3>
+            <div id="messages">
+                </div>
+        </div>
+
+        <div id="sidebar">
+            <h3>Users Online</h3>
+            <ul id="users-list">
+                </ul>
+        </div>
+    </div>
+
+    <form id="chat-form" class="message-form">
+        <input type="text" id="msg-input" placeholder="Enter your message..." required>
+        <button type="submit">Send</button>
+    </form>
+
+    <form id="file-form" class="file-form" action="{{ url_for('upload_file') }}" method="POST" enctype="multipart/form-data">
+        <label for="file-input">Share File:</label>
+        <input type="file" id="file-input" name="file" required>
+        <input type="hidden" name="room" value="{{ room }}">
+        <button type="submit">Upload & Share</button>
+    </form>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script>
+        const socket = io(); // Connects to the Flask server
+        const room = "{{ room }}";
+        const username = "{{ username }}";
+        const messagesDiv = document.getElementById('messages');
+
+        // --- Core Socket Handlers ---
+
+        socket.on('connect', () => {
+            console.log('Connected to server');
+            // Send the 'join' event to the server to establish room membership
+            socket.emit('join', { username: username, room: room }); 
+            
+            // Request notification permission immediately
+            if (Notification.permission !== 'granted') {
+                Notification.requestPermission();
+            }
+        });
+
+        // 1. Handle Chat History ('history' event)
+        socket.on('history', (historyMessages) => {
+            const hr = document.createElement('hr');
+            hr.innerHTML = '--- Chat History Loaded ---';
+            messagesDiv.appendChild(hr);
+
+            historyMessages.forEach(data => {
+                const p = document.createElement('p');
+                p.innerHTML = `<strong>${data.user}</strong>: ${data.text}`; 
+                messagesDiv.appendChild(p);
+            });
+            messagesDiv.scrollTop = messagesDiv.scrollHeight; 
+        });
+
+        // 2. Handle Incoming Text Messages ('message' event)
+        socket.on('message', (data) => {
+            const p = document.createElement('p');
+            p.innerHTML = `<strong>${data.user}</strong>: ${data.text}`; 
+            messagesDiv.appendChild(p);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        });
+        
+        // 3. Handle Incoming File Messages ('file_message' event)
+        socket.on('file_message', (data) => {
+            const p = document.createElement('p');
+            // Display a link to the shared file
+            p.innerHTML = `<strong>${data.user}</strong> shared a file: 
+                           <a href="${data.file_url}" target="_blank">${data.filename}</a>`;
+            messagesDiv.appendChild(p);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        });
+
+        // 4. Handle User List Update ('users_list' event - Presence)
+        socket.on('users_list', (data) => {
+            const ul = document.getElementById('users-list');
+            ul.innerHTML = ''; 
+            data.users.forEach(user => {
+                const li = document.createElement('li');
+                li.innerHTML = `🟢 ${user}`;
+                ul.appendChild(li);
+            });
+        });
+
+        // 5. Handle Notifications ('notification' event)
+        socket.on('notification', (data) => {
+            // Only show the browser notification if the tab is not focused
+            if (document.visibilityState === 'hidden' && Notification.permission === 'granted') {
+                new Notification(`New message in ${room}`, {
+                    body: `${data.user}: ${data.text}`,
+                    icon: '/static/chat_icon.png' 
+                });
+            }
+        });
+
+        // --- Forms and Events ---
+
+        // Handle Sending Text Messages
+        document.getElementById('chat-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const msgInput = document.getElementById('msg-input');
+            const msg = msgInput.value;
+
+            if (msg) {
+                // Send the 'chat_message' event to the server
+                socket.emit('chat_message', { text: msg });
+                msgInput.value = ''; 
+                msgInput.focus();
+            }
+        });
+        
+        // Handle Sending File Messages (uses standard HTTP POST/fetch)
+        document.getElementById('file-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const form = e.target;
+            const fileInput = document.getElementById('file-input');
+            
+            if (fileInput.files.length > 0) {
+                const formData = new FormData(form);
+                
+                const response = await fetch(form.action, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    console.log('File upload signal sent to server.');
+                    fileInput.value = ''; // Clear file input
+                } else {
+                    alert('File upload failed.');
+                }
+            }
+        });
+
+        // --- Notification Focus Logic ---
+
+        // Tracks when the user switches away from or back to the tab
+        document.addEventListener('visibilitychange', () => {
+            const focused = document.visibilityState === 'visible';
+            // Inform the server about the focus change
+            socket.emit('user_focus_change', { focused: focused });
+        });
+
+    </script>
+</body>
+</html>

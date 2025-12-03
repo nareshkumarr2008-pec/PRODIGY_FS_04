@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Select Room</title>
+</head>
+<body>
+    <h2>Welcome, {{ session.get('username') }}!</h2>
+    <p><a href="{{ url_for('logout') }}">Logout</a></p>
+    
+    <h3>Join a Chat Room</h3>
+    <form method="POST" action="{{ url_for('chat') }}">
+        <label for="room">Room Name:</label><br>
+        <input type="text" id="room" name="room" placeholder="e.g., General, Development" required><br><br>
+        <button type="submit">Join Chat</button>
+    </form>
+</body>
+</html>
